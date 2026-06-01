@@ -387,17 +387,17 @@ def interact_echelle(
         fmax = freq[-1]
 
     dnu_initial = (dnu_max + dnu_min) / 2.0
-    x, y, z = echelle(
-        freq,
-        power,
-        dnu_initial,
-        **kwargs,
-    )
 
-    if scale == "sqrt":
-        z = np.sqrt(z)
-    elif scale == "log":
-        z = np.log10(z)
+    def fold(dnu):
+        x, y, z = echelle(freq, power, dnu, **kwargs)
+        if scale == "sqrt":
+            z = np.sqrt(z)
+        elif scale == "log":
+            z = np.log10(z)
+        extent = (x.min(), x.max(), y.min(), y.max())
+        return z, extent
+
+    z, extent = fold(dnu_initial)
 
     if step == None:
         step = stepsize * np.median(np.diff(freq))
@@ -410,42 +410,27 @@ def interact_echelle(
 
     use_fast = plot_method == "fast" and not mirror
     if use_fast:
-        line = ax.pcolorfast((x.min(), x.max()), (y.min(), y.max()), z, cmap=cmap)
+        line = ax.pcolorfast((extent[0], extent[1]), (extent[2], extent[3]), z, cmap=cmap)
     else:
-        line = ax.imshow(
-            z,
-            aspect="auto",
-            extent=(x.min(), x.max(), y.min(), y.max()),
-            origin="lower",
-            cmap=cmap,
-        )
-    line.set_extent((x.min(), x.max(), y.min(), y.max()))
+        line = ax.imshow(z, aspect="auto", extent=extent, origin="lower", cmap=cmap)
+    line.set_extent(extent)
     mirror_line = None
     if mirror:
         mirror_line = ax.imshow(
             z,
             aspect="auto",
             extent=(
-                x.min() + dnu_initial,
-                x.max() + dnu_initial,
-                y.min() - dnu_initial,
-                y.max() - dnu_initial,
+                extent[0] + dnu_initial,
+                extent[1] + dnu_initial,
+                extent[2] - dnu_initial,
+                extent[3] - dnu_initial,
             ),
             origin="lower",
             cmap=cmap,
         )
-        mirror_line.set_extent(
-            (
-                x.min() + dnu_initial,
-                x.max() + dnu_initial,
-                y.min() - dnu_initial,
-                y.max() - dnu_initial,
-            )
-        )
-    line.set_extent((x.min(), x.max(), y.min(), y.max()))
     dnu_line = ax.axvline(dnu_initial, color="k", linestyle="--", alpha=0.6)
-    ax.set_xlim(0, mirror_dnu * dnu_initial if mirror else dnu_initial)
-    ax.set_ylim(y.min() - dnu_initial if mirror else y.min(), y.max())
+    ax.set_xlim(0, mirror_dnu * dnu_initial if mirror else extent[1])
+    ax.set_ylim(extent[2], extent[3])
 
     axfreq = plt.axes([0.1, 0.025, 0.8, 0.02])
     valfmt = -int(np.floor(np.log10(abs(step))))
@@ -460,27 +445,22 @@ def interact_echelle(
     )
 
     def update(dnu):
-        x, y, z = echelle(freq, power, dnu, **kwargs)
-        if scale is not None:
-            if scale == "sqrt":
-                z = np.sqrt(z)
-            elif scale == "log":
-                z = np.log10(z)
+        z, extent = fold(dnu)
         line.set_array(z)
-        line.set_extent((x.min(), x.max(), y.min(), y.max()))
+        line.set_extent(extent)
         if mirror_line is not None:
             mirror_line.set_array(z)
             mirror_line.set_extent(
                 (
-                    x.min() + dnu,
-                    x.max() + dnu,
-                    y.min() - dnu,
-                    y.max() - dnu,
+                    extent[0] + dnu,
+                    extent[1] + dnu,
+                    extent[2] - dnu,
+                    extent[3] - dnu,
                 )
             )
         dnu_line.set_xdata([dnu, dnu])
-        ax.set_xlim(0, mirror_dnu * dnu if mirror else dnu)
-        ax.set_ylim(y.min() - dnu if mirror else y.min(), y.max())
+        ax.set_xlim(0, mirror_dnu * dnu if mirror else extent[1])
+        ax.set_ylim(extent[2], extent[3])
         fig.canvas.draw_idle()
 
 
@@ -495,9 +475,9 @@ def interact_echelle(
         slider.set_val(new_dnu)
         update(new_dnu)
 
-    # def on_click(event):
-    #     ix, iy = event.xdata, event.ydata
-    #     coords.append((ix, iy))
+    def on_click(event):
+        ix, iy = event.xdata, event.ydata
+        coords.append((ix, iy))
 
     fig.canvas.mpl_connect("key_press_event", on_key_press)
     slider.on_changed(update)
@@ -512,7 +492,7 @@ def interact_echelle(
     )
     plt.show()
 
-    # if return_coords:
-    #     coords = []
-    #     fig.canvas.mpl_connect("button_press_event", on_click)
-    #     return coords
+    if return_coords:
+        coords = []
+        fig.canvas.mpl_connect("button_press_event", on_click)
+        return coords
