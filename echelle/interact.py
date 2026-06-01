@@ -305,11 +305,14 @@ def interact_echelle(
     ax=None,
     smooth=False,
     stepsize=10,
+    sampling=0.5,
     smooth_filter_width=50.0,
     scale=None,
     return_coords=False,
     backend="matplotlib",
     plot_method="fast",
+    mirror=True,
+    mirror_dnu=1.2,
     **kwargs,
 ):
     """Creates an interactive echelle environment with a variable deltanu
@@ -349,6 +352,7 @@ def interact_echelle(
         function. pcolormesh is much faster, but does not support
         interpolation.
     sampling: float
+        How much the echelle diagram is sampled (lower is finer).
     **kwargs : dict
         Dictionary of arguments to be passed to `echelle.echelle`
 
@@ -366,6 +370,9 @@ def interact_echelle(
 
     if smooth_filter_width < 1:
         raise ValueError("The smooth filter width can not be less than 1!")
+
+    if mirror_dnu < 1.0:
+        raise ValueError("mirror_dnu must be >= 1.0")
 
     if smooth:
         power = smooth_power(power, smooth_filter_width)
@@ -401,7 +408,8 @@ def interact_echelle(
     else:
         fig = plt.gcf()
 
-    if plot_method == "fast":
+    use_fast = plot_method == "fast" and not mirror
+    if use_fast:
         line = ax.pcolorfast((x.min(), x.max()), (y.min(), y.max()), z, cmap=cmap)
     else:
         line = ax.imshow(
@@ -412,7 +420,32 @@ def interact_echelle(
             cmap=cmap,
         )
     line.set_extent((x.min(), x.max(), y.min(), y.max()))
-    ax.set_xlim(0, dnu_initial)
+    mirror_line = None
+    if mirror:
+        mirror_line = ax.imshow(
+            z,
+            aspect="auto",
+            extent=(
+                x.min() + dnu_initial,
+                x.max() + dnu_initial,
+                y.min() - dnu_initial,
+                y.max() - dnu_initial,
+            ),
+            origin="lower",
+            cmap=cmap,
+        )
+        mirror_line.set_extent(
+            (
+                x.min() + dnu_initial,
+                x.max() + dnu_initial,
+                y.min() - dnu_initial,
+                y.max() - dnu_initial,
+            )
+        )
+    line.set_extent((x.min(), x.max(), y.min(), y.max()))
+    dnu_line = ax.axvline(dnu_initial, color="k", linestyle="--", alpha=0.6)
+    ax.set_xlim(0, mirror_dnu * dnu_initial if mirror else dnu_initial)
+    ax.set_ylim(y.min() - dnu_initial if mirror else y.min(), y.max())
 
     axfreq = plt.axes([0.1, 0.025, 0.8, 0.02])
     valfmt = -int(np.floor(np.log10(abs(step))))
@@ -435,9 +468,21 @@ def interact_echelle(
                 z = np.log10(z)
         line.set_array(z)
         line.set_extent((x.min(), x.max(), y.min(), y.max()))
-        ax.set_xlim(0, dnu)
+        if mirror_line is not None:
+            mirror_line.set_array(z)
+            mirror_line.set_extent(
+                (
+                    x.min() + dnu,
+                    x.max() + dnu,
+                    y.min() - dnu,
+                    y.max() - dnu,
+                )
+            )
+        dnu_line.set_xdata([dnu, dnu])
+        ax.set_xlim(0, mirror_dnu * dnu if mirror else dnu)
+        ax.set_ylim(y.min() - dnu if mirror else y.min(), y.max())
         fig.canvas.draw_idle()
-        # fig.canvas.blit(ax.bbox)
+
 
     def on_key_press(event):
         if event.key == "left":
@@ -471,27 +516,3 @@ def interact_echelle(
     #     coords = []
     #     fig.canvas.mpl_connect("button_press_event", on_click)
     #     return coords
-
-
-def get_bokeh_palette(cmap):
-    """Creates a color palette compatible with Bokeh
-    from a matplotlib cmap name.
-
-    Parameters
-    ----------
-    cmap : string
-        Name of a matplotlib colormap
-
-    Returns
-    -------
-    list
-        A series of hex colour codes generated from
-        the matplotlib colormap
-    """
-    from bokeh.colors import RGB
-    from matplotlib import cm
-
-    # Solution adapted from
-    # https://stackoverflow.com/questions/31883097/elegant-way-to-match-a-string-to-a-random-color-matplotlib
-    m_RGB = (255 * plt.get_cmap(cmap)(range(256))).astype("int")
-    return [RGB(*tuple(rgb)).to_hex() for rgb in m_RGB]
